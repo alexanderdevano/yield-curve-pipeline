@@ -407,6 +407,42 @@ html = f"""<!DOCTYPE html>
     margin-top: 2rem;
     font-family: var(--font-mono);
   }}
+
+  @media (max-width: 768px) {{
+    .top-bar {{ padding: 0 1rem; height: 48px; }}
+    .main {{ padding: 1rem; }}
+    .page-header {{ margin-bottom: 1.25rem; }}
+    .page-title {{ font-size: 17px; line-height: 1.3; }}
+    .page-subtitle {{ font-size: 11px; margin-top: 4px; }}
+    .metrics-grid {{ grid-template-columns: repeat(2, 1fr); }}
+    .three-col {{ grid-template-columns: repeat(2, 1fr); }}
+    .two-col {{ grid-template-columns: 1fr; }}
+    .metric-card {{ padding: 1rem; }}
+    .metric-value {{ font-size: 20px; }}
+    .metric-label {{ font-size: 10px; }}
+    .metric-sub {{ font-size: 10px; }}
+    .date-controls {{ grid-template-columns: 1fr; }}
+    .chart-container {{ height: 220px; }}
+    .card {{ padding: 1rem; margin-bottom: 1rem; }}
+    .card-title {{ font-size: 13px; }}
+    .footer {{ flex-direction: column; gap: 4px; padding: 1rem; font-size: 10px; }}
+    .tabs {{ overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; padding-bottom: 1px; }}
+    .tab {{ padding: 10px 14px; font-size: 12px; display: inline-flex; white-space: nowrap; }}
+    .alert-bar {{ font-size: 12px; padding: 10px 14px; }}
+    thead th {{ padding: 6px 8px; font-size: 10px; }}
+    tbody td {{ padding: 8px; font-size: 11px; }}
+    .insight-box {{ font-size: 11px; padding: 0.75rem 1rem; margin-top: 1rem; }}
+    .compare-btn {{ width: 100%; justify-content: center; }}
+  }}
+
+  @media (max-width: 480px) {{
+    .metrics-grid {{ grid-template-columns: 1fr 1fr; }}
+    .three-col {{ grid-template-columns: 1fr 1fr; }}
+    .metric-value {{ font-size: 18px; }}
+    .page-title {{ font-size: 16px; }}
+    .top-bar-right span:not(.status-pill) {{ display: none; }}
+    .chart-container {{ height: 200px; }}
+  }}
 </style>
 </head>
 <body>
@@ -583,7 +619,7 @@ html = f"""<!DOCTYPE html>
 
 <div class="footer">
   <span>YC Monitor. Data: FRED, Federal Reserve Bank of St. Louis</span>
-  <span>Alexander Devano Aryasena &copy; 2026 &nbsp;|&nbsp; Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} UTC</span>
+  <span>Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} UTC</span>
 </div>
 
 <script>
