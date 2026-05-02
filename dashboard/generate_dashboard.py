@@ -90,6 +90,7 @@ try:
     print(f"Data loaded: {len(spreads)} rows, latest: {data_date}")
 
 except Exception as e:
+    # Sample Data if fails
     print(f"Athena connection failed: {e}")
     print("Using sample data...")
 
@@ -619,7 +620,7 @@ html = f"""<!DOCTYPE html>
 
 <div class="footer">
   <span>YC Monitor. Data: FRED, Federal Reserve Bank of St. Louis</span>
-  <span>Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} UTC</span>
+  <span>Alexander Devano Aryasena &copy; 2026 &nbsp;|&nbsp; Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} UTC</span>
 </div>
 
 <script>
