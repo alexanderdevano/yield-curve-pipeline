@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: yield_spreads
+    description: "Daily yield spreads between Treasury maturities"
+    columns:
+      - name: date
+        description: "Trading date"
+        tests:
+          - not_null
+          - unique
+      - name: yield_10y
+        description: "10-year Treasury yield"
+        tests:
+          - not_null
+      - name: yield_2y
+        description: "2-year Treasury yield"
+        tests:
+          - not_null
+      - name: spread_10y_2y
+        description: "10Y minus 2Y spread"
+        tests:
+          - not_null
+
+  - name: inversion_flags
+    description: "Daily inversion flags based on 10Y-2Y spread"
+    columns:
+      - name: date
+        description: "Trading date"
+        tests:
+          - not_null
+          - unique
+      - name: is_inverted_2y
+        description: "True if 10Y-2Y spread is negative"
+        tests:
+          - not_null

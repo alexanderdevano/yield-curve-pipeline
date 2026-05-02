@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: stg_yield_curve
+    description: "Cleaned raw FRED yield curve data"
+    columns:
+      - name: date
+        description: "Trading date"
+        tests:
+          - not_null
+      - name: yield
+        description: "Treasury yield value"
+        tests:
+          - not_null
+      - name: maturity
+        description: "Treasury maturity"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['3_month', '1_year', '2_year', '5_year', '10_year', '30_year']
+      - name: series_id
+        description: "FRED series ID"
+        tests:
+          - not_null
