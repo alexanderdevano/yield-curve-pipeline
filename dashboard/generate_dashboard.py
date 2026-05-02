@@ -28,20 +28,9 @@ try:
         "SELECT * FROM yield_curve.inversion_flags ORDER BY date",
         conn
     )
-    recession = pd.read_sql(
-        """
-        SELECT date, value as is_recession
-        FROM yield_curve.observations
-        WHERE series_id = 'USREC'
-        ORDER BY date
-        """,
-        conn
-    )
 
     spreads['date'] = pd.to_datetime(spreads['date']).dt.strftime('%Y-%m-%d')
     inversion['date'] = pd.to_datetime(inversion['date']).dt.strftime('%Y-%m-%d')
-    recession['date'] = pd.to_datetime(recession['date']).dt.strftime('%Y-%m-%d')
-    recession['is_recession'] = pd.to_numeric(recession['is_recession'], errors='coerce').fillna(0).astype(int)
 
     latest = spreads.iloc[-1]
     is_inverted = float(latest['spread_10y_2y']) < 0
@@ -49,8 +38,6 @@ try:
     dates = spreads['date'].tolist()
     spread_data = spreads['spread_10y_2y'].round(3).tolist()
     inversion_flags = [bool(v) for v in inversion['is_inverted_2y'].tolist()]
-    recession_flags = [bool(v) for v in recession['is_recession'].tolist()]
-    recession_dates = recession['date'].tolist()
 
     maturities = ["3M", "1Y", "2Y", "5Y", "10Y", "30Y"]
     current_yields = [
@@ -118,8 +105,6 @@ except Exception as e:
     is_inverted = False
     maturities = ["3M", "1Y", "2Y", "5Y", "10Y", "30Y"]
     current_yields = [3.68, 3.72, 3.88, 4.02, 4.40, 4.98]
-    recession_dates = ["2001-03-01", "2001-11-01", "2007-12-01", "2009-06-01", "2020-02-01", "2020-04-01"]
-    recession_flags = [True, False, True, False, True, False]
 
     base_spreads = {
         2000: 0.5, 2001: 0.2, 2002: 0.8, 2003: 1.2, 2004: 0.9,
@@ -173,7 +158,7 @@ html = f"""<!DOCTYPE html>
 <title>YC Monitor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
   :root {{
@@ -641,8 +626,6 @@ html = f"""<!DOCTYPE html>
 <script>
 const DATES = {json.dumps(dates)};
 const SPREADS = {json.dumps(spread_data)};
-const RECESSION_DATES = {json.dumps(recession_dates)};
-const RECESSION_FLAGS = {json.dumps(recession_flags)};
 const MATURITIES = {json.dumps(maturities)};
 const CURRENT_YIELDS = {json.dumps(current_yields)};
 const ALL_YIELDS = {json.dumps(all_yields)};
@@ -705,21 +688,6 @@ new Chart(document.getElementById('curveChart'), {{
 const filteredDates = DATES.filter((_, i) => i % 5 === 0);
 const filteredSpreads = SPREADS.filter((_, i) => i % 5 === 0);
 
-// build recession bands from USREC data
-const recessionBands = [];
-let inRecession = false;
-let recStart = null;
-
-for (let i = 0; i < RECESSION_DATES.length; i++) {{
-  if (RECESSION_FLAGS[i] && !inRecession) {{
-    inRecession = true;
-    recStart = RECESSION_DATES[i];
-  }} else if (!RECESSION_FLAGS[i] && inRecession) {{
-    inRecession = false;
-    recessionBands.push({{ start: recStart, end: RECESSION_DATES[i] }});
-  }}
-}}
-
 new Chart(document.getElementById('spreadChart'), {{
   type: 'bar',
   data: {{
@@ -736,26 +704,7 @@ new Chart(document.getElementById('spreadChart'), {{
     maintainAspectRatio: false,
     plugins: {{
       legend: {{ display: false }},
-      tooltip: {{ ...tooltipDefaults, callbacks: {{ label: ctx => ctx.parsed.y.toFixed(3) + '%' }} }},
-      annotation: {{
-        annotations: recessionBands.reduce((acc, band, i) => {{
-          acc['rec' + i] = {{
-            type: 'box',
-            xMin: band.start,
-            xMax: band.end,
-            backgroundColor: 'rgba(150,150,150,0.15)',
-            borderWidth: 0,
-            label: {{
-              display: true,
-              content: 'Recession',
-              font: {{ size: 9 }},
-              color: 'rgba(150,150,150,0.6)',
-              position: 'start'
-            }}
-          }};
-          return acc;
-        }}, {{}})
-      }}
+      tooltip: {{ ...tooltipDefaults, callbacks: {{ label: ctx => ctx.parsed.y.toFixed(3) + '%' }} }}
     }},
     scales: {{
       x: {{
