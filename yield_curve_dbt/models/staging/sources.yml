@@ -1,0 +1,8 @@
+version: 2
+
+sources:
+  - name: yield_curve
+    database: AwsDataCatalog
+    schema: yield_curve
+    tables:
+      - name: observations

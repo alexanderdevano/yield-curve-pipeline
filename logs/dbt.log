@@ -1,0 +1,74 @@
+[0m19:33:48.066744 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106098cd0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x1115de5c0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x1115ddea0>]}
+
+
+============================== 19:33:48.069723 | 7449d83c-993d-49f2-9357-c58b4309b59b ==============================
+[0m19:33:48.069723 [info ] [MainThread]: Running with dbt=1.10.15
+[0m19:33:48.070108 [debug] [MainThread]: running dbt with arguments {'no_print': 'None', 'target_path': 'None', 'fail_fast': 'False', 'invocation_command': 'dbt init yield_curve_dbt', 'use_experimental_parser': 'False', 'static_parser': 'True', 'debug': 'False', 'log_path': 'logs', 'quiet': 'False', 'profiles_dir': '/Users/alexanderdevano/.dbt', 'version_check': 'True', 'send_anonymous_usage_stats': 'True', 'indirect_selection': 'eager', 'empty': 'None', 'use_colors': 'True', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'cache_selected_only': 'False', 'introspect': 'True', 'partial_parse': 'True', 'log_cache_events': 'False', 'printer_width': '80', 'log_format': 'default', 'write_json': 'True', 'warn_error': 'None'}
+[0m19:33:48.081148 [debug] [MainThread]: Starter project path: /Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/dbt/include/starter_project
+[0m19:33:48.087837 [info ] [MainThread]: 
+Your new dbt project "yield_curve_dbt" was created!
+
+For more information on how to configure the profiles.yml file,
+please consult the dbt documentation here:
+
+  https://docs.getdbt.com/docs/configure-your-profile
+
+One more thing:
+
+Need help? Don't hesitate to reach out to us via GitHub issues or on Slack:
+
+  https://community.getdbt.com/
+
+Happy modeling!
+
+[0m19:33:48.088122 [info ] [MainThread]: Setting up your profile.
+[0m19:34:14.192275 [error] [MainThread]: Encountered an error:
+
+[0m19:34:14.199017 [error] [MainThread]: Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/dbt/cli/requires.py", line 178, in wrapper
+    result, success = func(*args, **kwargs)
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/dbt/cli/requires.py", line 128, in wrapper
+    return func(*args, **kwargs)
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/dbt/cli/main.py", line 483, in init
+    results = task.run()
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/dbt/task/init.py", line 346, in run
+    self.setup_profile(profile_name)
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/dbt/task/init.py", line 261, in setup_profile
+    adapter = self.ask_for_adapter_choice()
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/dbt/task/init.py", line 242, in ask_for_adapter_choice
+    numeric_choice = click.prompt(prompt_msg, type=click.INT)
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/click/termui.py", line 164, in prompt
+    value = prompt_func(prompt)
+  File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/click/termui.py", line 147, in prompt_func
+    raise Abort() from None
+click.exceptions.Abort
+
+[0m19:34:14.243230 [debug] [MainThread]: Resource report: {"command_name": "init", "command_success": false, "command_wall_clock_time": 26.223106, "process_in_blocks": "0", "process_kernel_time": 0.116985, "process_mem_max_rss": "103596032", "process_out_blocks": "0", "process_user_time": 0.708393}
+[0m19:34:14.244547 [debug] [MainThread]: Command `dbt init` failed at 19:34:14.244398 after 26.22 seconds
+[0m19:34:14.245100 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106098cd0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x1115df0a0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x1116847f0>]}
+[0m19:34:14.245632 [debug] [MainThread]: Flushing usage events
+[0m19:34:15.402926 [debug] [MainThread]: An error was encountered while trying to flush usage events
+[0m19:34:19.064976 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x104af8d30>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106da6620>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106da5f00>]}
+
+
+============================== 19:34:19.069075 | 9bbd9883-bd33-4b00-9fb3-cc9f598b369f ==============================
+[0m19:34:19.069075 [info ] [MainThread]: Running with dbt=1.10.15
+[0m19:34:19.069831 [debug] [MainThread]: running dbt with arguments {'version_check': 'True', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'use_experimental_parser': 'False', 'warn_error': 'None', 'target_path': 'None', 'partial_parse': 'True', 'use_colors': 'True', 'fail_fast': 'False', 'static_parser': 'True', 'invocation_command': 'dbt init yield_curve_dbt', 'write_json': 'True', 'send_anonymous_usage_stats': 'True', 'no_print': 'None', 'log_path': 'logs', 'debug': 'False', 'log_format': 'default', 'profiles_dir': '/Users/alexanderdevano/.dbt', 'introspect': 'True', 'log_cache_events': 'False', 'cache_selected_only': 'False', 'quiet': 'False', 'indirect_selection': 'eager', 'empty': 'None', 'printer_width': '80'}
+[0m19:34:19.079164 [info ] [MainThread]: A project called yield_curve_dbt already exists here.
+[0m19:34:19.081539 [debug] [MainThread]: Resource report: {"command_name": "init", "command_success": true, "command_wall_clock_time": 0.06279966, "process_in_blocks": "0", "process_kernel_time": 0.085649, "process_mem_max_rss": "102989824", "process_out_blocks": "0", "process_user_time": 0.69462}
+[0m19:34:19.087509 [debug] [MainThread]: Command `dbt init` succeeded at 19:34:19.087363 after 0.07 seconds
+[0m19:34:19.087834 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x104af8d30>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106da66e0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106da70d0>]}
+[0m19:34:19.088100 [debug] [MainThread]: Flushing usage events
+[0m19:34:20.072157 [debug] [MainThread]: An error was encountered while trying to flush usage events
+[0m19:34:28.767053 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x105748d00>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106e165c0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106e15ea0>]}
+
+
+============================== 19:34:28.769667 | b1ee35cd-b794-4f6f-a319-e7735435cb09 ==============================
+[0m19:34:28.769667 [info ] [MainThread]: Running with dbt=1.10.15
+[0m19:34:28.770195 [debug] [MainThread]: running dbt with arguments {'empty': 'None', 'cache_selected_only': 'False', 'indirect_selection': 'eager', 'version_check': 'True', 'send_anonymous_usage_stats': 'True', 'introspect': 'True', 'log_cache_events': 'False', 'debug': 'False', 'no_print': 'None', 'log_path': 'logs', 'log_format': 'default', 'static_parser': 'True', 'partial_parse': 'True', 'warn_error': 'None', 'invocation_command': 'dbt init yield_curve_dbt', 'target_path': 'None', 'quiet': 'False', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'use_colors': 'True', 'profiles_dir': '/Users/alexanderdevano/.dbt', 'write_json': 'True', 'fail_fast': 'False', 'printer_width': '80', 'use_experimental_parser': 'False'}
+[0m19:34:28.775605 [info ] [MainThread]: A project called yield_curve_dbt already exists here.
+[0m19:34:28.776494 [debug] [MainThread]: Resource report: {"command_name": "init", "command_success": true, "command_wall_clock_time": 0.049506836, "process_in_blocks": "0", "process_kernel_time": 0.073871, "process_mem_max_rss": "105725952", "process_out_blocks": "0", "process_user_time": 0.690929}
+[0m19:34:28.776874 [debug] [MainThread]: Command `dbt init` succeeded at 19:34:28.776818 after 0.05 seconds
+[0m19:34:28.777112 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x105748d00>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106e16680>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106e17070>]}
+[0m19:34:28.777337 [debug] [MainThread]: Flushing usage events
+[0m19:34:29.751925 [debug] [MainThread]: An error was encountered while trying to flush usage events
