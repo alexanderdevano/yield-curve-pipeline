@@ -6,7 +6,7 @@ An automated data engineering pipeline that tracks the U.S. Treasury yield curve
 
 FRED API → AWS Lambda → S3 → AWS Athena → dbt → Streamlit
 
-## Stack
+## Stackgi
 
 - **Ingestion**: Python, FRED API
 - **Storage**: AWS S3 (Parquet format)
