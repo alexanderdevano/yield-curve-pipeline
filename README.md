@@ -2,7 +2,7 @@
 
 A personal data engineering project that tracks the U.S. Treasury yield curve daily.
 Data is pulled automatically from the Federal Reserve (FRED), stored in AWS S3,
-transformed with dbt, and served as a static dashboard.
+transformed with dbt, and served as a live static dashboard updated via GitHub Actions.
 
 **Live dashboard:** https://alexanderdevano.github.io/yield-curve-pipeline/
 
@@ -11,12 +11,13 @@ transformed with dbt, and served as a static dashboard.
 ## Architecture
 
 ```
-FRED API -> AWS Lambda -> S3 -> AWS Athena -> dbt -> HTML Dashboard
+FRED API -> AWS Lambda -> S3 -> dbt (Athena) -> GitHub Actions -> GitHub Pages
 ```
 
-Lambda runs on a daily schedule via EventBridge. Raw data lands in S3 as Parquet,
-dbt computes spreads and inversion flags in Athena, and the dashboard is generated
-as a static HTML file served via GitHub Pages.
+Lambda runs on a daily schedule via EventBridge. Raw data lands in S3 as Parquet.
+dbt runs transformations in Athena for data quality and analysis. GitHub Actions
+reads the raw Parquet directly from S3, generates a static HTML dashboard, and
+deploys it to GitHub Pages daily.
 
 ---
 
@@ -27,8 +28,8 @@ as a static HTML file served via GitHub Pages.
 | Ingestion | Python, FRED API |
 | Storage | AWS S3 (Parquet) |
 | Automation | AWS Lambda, EventBridge |
-| Query layer | AWS Athena |
-| Transformation | dbt |
+| Transformation | dbt, AWS Athena |
+| CI/CD | GitHub Actions |
 | Dashboard | HTML, Chart.js, GitHub Pages |
 
 ---
@@ -37,6 +38,8 @@ as a static HTML file served via GitHub Pages.
 
 Daily U.S. Treasury yields from 2000 to present across six maturities:
 3 Month, 1 Year, 2 Year, 5 Year, 10 Year, 30 Year.
+
+Recession periods from NBER via FRED series USREC.
 
 Source: Federal Reserve Economic Data (FRED), St. Louis Fed.
 
@@ -56,16 +59,29 @@ Source: Federal Reserve Economic Data (FRED), St. Louis Fed.
 ```
 yield_curve_pipeline/
 ├── ingestion/
-│   └── fetch_fred.py          # pulls FRED data, uploads to S3
+│   └── fetch_fred.py           # pulls FRED data, uploads to S3
 ├── infrastructure/
-│   └── lambda_handler.py      # AWS Lambda entry point
+│   └── lambda_handler.py       # AWS Lambda entry point
 ├── yield_curve_dbt/
 │   └── models/
-│       ├── staging/           # cleans raw data
-│       └── marts/             # computes spreads and inversion flags
-└── dashboard/
-    └── generate_dashboard.py  # generates index.html from Athena data
+│       ├── staging/            # cleans raw data
+│       └── marts/              # computes spreads and inversion flags
+├── dashboard/
+│   └── generate_dashboard.py   # reads S3, computes metrics, generates index.html
+└── .github/
+    └── workflows/
+        └── update_dashboard.yml  # daily CI/CD to regenerate and deploy dashboard
 ```
+
+---
+
+## How It Works
+
+1. **Lambda** pulls fresh yield data from FRED daily at 7AM UTC and stores it in S3 as Parquet
+2. **dbt** runs transformation models in Athena for data quality testing and analysis
+3. **GitHub Actions** runs at 8AM UTC, reads the latest Parquet from S3, computes spreads
+   and inversion flags in pandas, generates a static HTML dashboard, and pushes to GitHub Pages
+4. **GitHub Pages** serves the updated dashboard at the live URL above
 
 ---
 
@@ -81,7 +97,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# add your FRED API key to .env
+# add credentials to .env
 echo "FRED_API_KEY=your_key_here" >> .env
 
 # pull data and generate dashboard
