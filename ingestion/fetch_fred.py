@@ -18,7 +18,8 @@ SERIES = {
     "DGS2":   "2_year",
     "DGS5":   "5_year",
     "DGS10":  "10_year",
-    "DGS30":  "30_year"
+    "DGS30":  "30_year",
+    "USREC":  "recession"
 }
 
 def fetch_series(series_id, label):
@@ -72,7 +73,6 @@ def main():
         print(f"saved locally to {local_path}")
     else:
         print("running in Lambda")
-
 
     # upload to s3
     s3_key = f"raw/yield_curve_{date.today()}.parquet"
