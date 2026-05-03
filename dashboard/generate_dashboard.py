@@ -130,7 +130,10 @@ try:
             "observation_start": "2000-01-01"
         }
     )
-    rec_df = pd.DataFrame(rec_r.json()["observations"])[["date", "value"]]
+    rec_json = rec_r.json()
+    if "observations" not in rec_json:
+        raise Exception(f"FRED API error: {rec_json}")
+    rec_df = pd.DataFrame(rec_json["observations"])[["date", "value"]]
     rec_df["value"] = pd.to_numeric(rec_df["value"], errors="coerce").fillna(0).astype(int)
     recession_dates = rec_df["date"].tolist()
     recession_flags = [bool(v) for v in rec_df["value"].tolist()]
