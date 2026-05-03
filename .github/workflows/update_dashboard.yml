@@ -19,7 +19,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install pandas pyathena boto3 pyarrow
+        run: pip install pandas boto3 pyarrow requests python-dotenv
 
       - name: Generate dashboard
         env:
