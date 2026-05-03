@@ -1,43 +1,77 @@
 """
 generate_dashboard.py
-Pulls data from Athena and generates dashboard/index.html
+Pulls data from S3 and generates dashboard/index.html
 Usage: python generate_dashboard.py
 
 Author: Alexander Devano Aryasena
 Built: 2026
-Stack: Python, AWS (Lambda, S3, Athena), dbt, FRED API
+Stack: Python, AWS (Lambda, S3), dbt, FRED API
 """
 
 import json
-from datetime import datetime
+import os
+import requests
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+load_dotenv()
 
 try:
     import pandas as pd
-    from pyathena import connect
+    import boto3
+    import io
+    import pyarrow.parquet as pq
 
-    conn = connect(
-        s3_staging_dir="s3://yield-curve-athena-results/",
-        region_name="ap-southeast-2"
-    )
+    s3 = boto3.client('s3', region_name='ap-southeast-2')
 
-    spreads = pd.read_sql(
-        "SELECT * FROM yield_curve.yield_spreads ORDER BY date",
-        conn
-    )
-    inversion = pd.read_sql(
-        "SELECT * FROM yield_curve.inversion_flags ORDER BY date",
-        conn
-    )
+    # find latest parquet file in S3
+    df = None
+    for days_back in range(7):
+        check_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+        key = f"raw/yield_curve_{check_date}.parquet"
+        try:
+            obj = s3.get_object(Bucket='yield-curve-pipeline', Key=key)
+            df = pq.read_table(io.BytesIO(obj['Body'].read())).to_pandas()
+            print(f"loaded {key}")
+            break
+        except Exception:
+            continue
 
-    spreads['date'] = pd.to_datetime(spreads['date']).dt.strftime('%Y-%m-%d')
-    inversion['date'] = pd.to_datetime(inversion['date']).dt.strftime('%Y-%m-%d')
+    if df is None:
+        raise Exception("No parquet file found in S3")
 
-    latest = spreads.iloc[-1]
-    is_inverted = float(latest['spread_10y_2y']) < 0
+    # split yields and recession
+    yields_df = df[df['maturity'] != 'recession'].copy()
+    recession_df = df[df['maturity'] == 'recession'].copy()
 
-    dates = spreads['date'].tolist()
-    spread_data = spreads['spread_10y_2y'].round(3).tolist()
-    inversion_flags = [bool(v) for v in inversion['is_inverted_2y'].tolist()]
+    # pivot to wide format
+    wide = yields_df.pivot(index='date', columns='maturity', values='value').reset_index()
+    wide.columns.name = None
+    wide = wide.rename(columns={
+        '3_month': 'yield_3m',
+        '1_year': 'yield_1y',
+        '2_year': 'yield_2y',
+        '5_year': 'yield_5y',
+        '10_year': 'yield_10y',
+        '30_year': 'yield_30y'
+    })
+
+    for col in ['yield_3m', 'yield_1y', 'yield_2y', 'yield_5y', 'yield_10y', 'yield_30y']:
+        wide[col] = pd.to_numeric(wide[col], errors='coerce')
+
+    # compute spreads
+    wide['spread_10y_2y'] = wide['yield_10y'] - wide['yield_2y']
+    wide['is_inverted_2y'] = wide['spread_10y_2y'] < 0
+
+    wide = wide.sort_values('date').dropna(subset=['yield_10y', 'yield_2y'])
+    wide['date'] = pd.to_datetime(wide['date']).dt.strftime('%Y-%m-%d')
+
+    latest = wide.iloc[-1]
+    is_inverted = bool(latest['spread_10y_2y'] < 0)
+
+    dates = wide['date'].tolist()
+    spread_data = wide['spread_10y_2y'].round(3).tolist()
+    inversion_flags = [bool(v) for v in wide['is_inverted_2y'].tolist()]
 
     maturities = ["3M", "1Y", "2Y", "5Y", "10Y", "30Y"]
     current_yields = [
@@ -49,19 +83,12 @@ try:
         round(float(latest['yield_30y']), 2),
     ]
 
-    all_yields = {}
-    for _, row in spreads.iterrows():
-        try:
-            all_yields[row['date']] = [
-                round(float(row['yield_3m']), 2),
-                round(float(row['yield_1y']), 2),
-                round(float(row['yield_2y']), 2),
-                round(float(row['yield_5y']), 2),
-                round(float(row['yield_10y']), 2),
-                round(float(row['yield_30y']), 2),
-            ]
-        except:
-            pass
+    cols = ['yield_3m', 'yield_1y', 'yield_2y', 'yield_5y', 'yield_10y', 'yield_30y']
+    wide_clean = wide[['date'] + cols].dropna()
+    all_yields = dict(zip(
+        wide_clean['date'],
+        wide_clean[cols].round(2).values.tolist()
+    ))
 
     data_date = latest['date']
     yield_10y = round(float(latest['yield_10y']), 2)
@@ -69,35 +96,55 @@ try:
     yield_3m = round(float(latest['yield_3m']), 2)
     spread_value = round(float(latest['spread_10y_2y']), 2)
 
-    inv_df = inversion[inversion['is_inverted_2y'] == True].copy()
-    inv_df['date'] = pd.to_datetime(inv_df['date'])
-    inv_df['period'] = (inv_df['date'].diff().dt.days > 5).cumsum()
+    # inversion periods - correct calculation
+    inv_df = wide[wide['is_inverted_2y'] == True].copy()
+    inv_df['date_dt'] = pd.to_datetime(inv_df['date'])
+    inv_df = inv_df.sort_values('date_dt')
+    # gap > 10 calendar days = new period
+    inv_df['period'] = (inv_df['date_dt'].diff().dt.days > 10).cumsum()
     periods = inv_df.groupby('period').agg(
-        start=('date', 'min'),
-        end=('date', 'max'),
-        days=('date', 'count'),
+        start=('date_dt', 'min'),
+        end=('date_dt', 'max'),
+        days=('date_dt', 'count'),
         min_spread=('spread_10y_2y', 'min')
     ).reset_index(drop=True)
+    # remove tiny periods (noise)
+    periods = periods[periods['days'] >= 5].reset_index(drop=True)
     periods['start'] = periods['start'].dt.strftime('%Y-%m-%d')
     periods['end'] = periods['end'].dt.strftime('%Y-%m-%d')
     periods['min_spread'] = periods['min_spread'].round(2)
     inversion_periods = periods.to_dict('records')
 
-    total_days = len(inversion)
-    total_inverted = int(inversion['is_inverted_2y'].sum())
+    total_days = len(wide)
+    total_inverted = int(wide['is_inverted_2y'].sum())
     pct_inverted = round((total_inverted / total_days) * 100, 1)
 
-    print(f"Data loaded: {len(spreads)} rows, latest: {data_date}")
+    # recession data from FRED
+    fred_key = os.getenv("FRED_API_KEY")
+    rec_r = requests.get(
+        "https://api.stlouisfed.org/fred/series/observations",
+        params={
+            "series_id": "USREC",
+            "api_key": fred_key,
+            "file_type": "json",
+            "observation_start": "2000-01-01"
+        }
+    )
+    rec_df = pd.DataFrame(rec_r.json()["observations"])[["date", "value"]]
+    rec_df["value"] = pd.to_numeric(rec_df["value"], errors="coerce").fillna(0).astype(int)
+    recession_dates = rec_df["date"].tolist()
+    recession_flags = [bool(v) for v in rec_df["value"].tolist()]
+
+    print(f"Data loaded: {len(wide)} rows, latest: {data_date}")
 
 except Exception as e:
-    # Sample Data if fails
-    print(f"Athena connection failed: {e}")
+    print(f"S3 connection failed: {e}")
     print("Using sample data...")
 
     import random
     random.seed(42)
 
-    data_date = "2026-04-30"
+    data_date = "2026-05-03"
     yield_10y = 4.40
     yield_2y = 3.88
     yield_3m = 3.68
@@ -123,7 +170,7 @@ except Exception as e:
     for year in range(2000, 2027):
         base = base_spreads.get(year, 0.5)
         for month in range(1, 13):
-            if year == 2026 and month > 4:
+            if year == 2026 and month > 5:
                 break
             date_str = f"{year}-{month:02d}-01"
             spread = round(base + random.uniform(-0.1, 0.1), 3)
@@ -140,10 +187,15 @@ except Exception as e:
                 round(base_3m + spread + 0.6 + random.uniform(-0.1, 0.1), 2),
             ]
 
+    recession_dates = ["2001-03-01", "2001-11-01", "2007-12-01",
+                       "2009-06-01", "2020-02-01", "2020-04-01"]
+    recession_flags = [True, False, True, False, True, False]
+
     inversion_periods = [
-        {"start": "2006-07-01", "end": "2007-09-01", "days": 292, "min_spread": -0.19},
-        {"start": "2019-03-01", "end": "2019-10-01", "days": 161, "min_spread": -0.05},
-        {"start": "2022-07-06", "end": "2024-09-17", "days": 563, "min_spread": -1.07},
+        {"start": "2000-02-02", "end": "2000-12-28", "days": 214, "min_spread": -0.52},
+        {"start": "2006-07-01", "end": "2007-03-20", "days": 177, "min_spread": -0.19},
+        {"start": "2019-08-27", "end": "2019-08-29", "days": 3, "min_spread": -0.04},
+        {"start": "2022-07-06", "end": "2024-08-26", "days": 563, "min_spread": -1.08},
     ]
     total_days = len(dates)
     total_inverted = sum(1 for f in inversion_flags if f)
@@ -159,6 +211,7 @@ html = f"""<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
 <style>
   *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
   :root {{
@@ -177,237 +230,62 @@ html = f"""<!DOCTYPE html>
     --font-body: 'Inter', sans-serif;
     --font-mono: 'DM Mono', monospace;
   }}
-  body {{
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-body);
-    font-size: 14px;
-    line-height: 1.6;
-    min-height: 100vh;
-  }}
-  .top-bar {{
-    border-bottom: 1px solid var(--border);
-    padding: 0 2.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 56px;
-    background: var(--surface);
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }}
-  .logo {{
-    font-family: var(--font-display);
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    color: var(--accent);
-  }}
-  .top-bar-right {{
-    display: flex;
-    align-items: center;
-    gap: 1.25rem;
-    font-size: 12px;
-    color: var(--muted);
-    font-family: var(--font-mono);
-  }}
-  .status-pill {{
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    font-family: var(--font-body);
-  }}
+  body {{ background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 14px; line-height: 1.6; min-height: 100vh; }}
+  .top-bar {{ border-bottom: 1px solid var(--border); padding: 0 2.5rem; display: flex; align-items: center; justify-content: space-between; height: 56px; background: var(--surface); position: sticky; top: 0; z-index: 100; }}
+  .logo {{ font-family: var(--font-display); font-size: 15px; font-weight: 700; letter-spacing: 0.04em; color: var(--accent); }}
+  .top-bar-right {{ display: flex; align-items: center; gap: 1.25rem; font-size: 12px; color: var(--muted); font-family: var(--font-mono); }}
+  .status-pill {{ display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; font-family: var(--font-body); }}
   .status-pill.normal {{ background: rgba(62,207,142,0.1); color: var(--green); border: 1px solid rgba(62,207,142,0.2); }}
   .status-pill.inverted {{ background: rgba(224,91,91,0.1); color: var(--red); border: 1px solid rgba(224,91,91,0.2); }}
   .status-dot {{ width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }}
   @keyframes pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.3; }} }}
   .main {{ max-width: 1300px; margin: 0 auto; padding: 2.5rem; }}
   .page-header {{ margin-bottom: 2.5rem; }}
-  .page-title {{
-    font-family: var(--font-display);
-    font-size: 26px;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 6px;
-    letter-spacing: -0.01em;
-  }}
+  .page-title {{ font-family: var(--font-display); font-size: 26px; font-weight: 600; color: var(--text); margin-bottom: 6px; letter-spacing: -0.01em; }}
   .page-subtitle {{ font-size: 13px; color: var(--muted); }}
-  .metrics-grid {{
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1px;
-    background: var(--border);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    overflow: hidden;
-    margin-bottom: 1.5rem;
-  }}
-  .three-col {{
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1px;
-    background: var(--border);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    overflow: hidden;
-    margin-bottom: 1.5rem;
-  }}
+  .metrics-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 1.5rem; }}
+  .three-col {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 1.5rem; }}
   .metric-card {{ background: var(--surface); padding: 1.5rem; }}
-  .metric-label {{
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 10px;
-    font-family: var(--font-body);
-  }}
-  .metric-value {{
-    font-size: 30px;
-    font-weight: 500;
-    color: var(--text);
-    font-family: var(--font-mono);
-    letter-spacing: -0.03em;
-    line-height: 1;
-    margin-bottom: 6px;
-  }}
+  .metric-label {{ font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; font-family: var(--font-body); }}
+  .metric-value {{ font-size: 30px; font-weight: 500; color: var(--text); font-family: var(--font-mono); letter-spacing: -0.03em; line-height: 1; margin-bottom: 6px; }}
   .metric-value.positive {{ color: var(--green); }}
   .metric-value.negative {{ color: var(--red); }}
   .metric-sub {{ font-size: 11px; color: var(--muted); }}
-  .alert-bar {{
-    padding: 14px 18px;
-    border-radius: 8px;
-    font-size: 13px;
-    margin-bottom: 1.5rem;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }}
+  .alert-bar {{ padding: 14px 18px; border-radius: 8px; font-size: 13px; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 10px; }}
   .alert-bar.normal {{ background: rgba(62,207,142,0.05); border: 1px solid rgba(62,207,142,0.15); color: var(--green); }}
   .alert-bar.inverted {{ background: rgba(224,91,91,0.05); border: 1px solid rgba(224,91,91,0.15); color: var(--red); }}
   .alert-bar span {{ color: var(--text); }}
   .tabs {{ display: flex; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; }}
-  .tab {{
-    padding: 10px 18px;
-    font-size: 13px;
-    color: var(--muted);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    transition: color 0.15s, border-color 0.15s;
-    user-select: none;
-    font-family: var(--font-body);
-  }}
+  .tab {{ padding: 10px 18px; font-size: 13px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.15s, border-color 0.15s; user-select: none; font-family: var(--font-body); }}
   .tab.active {{ color: var(--text); border-bottom-color: var(--accent); }}
   .tab:hover {{ color: var(--text); }}
   .tab-content {{ display: none; }}
   .tab-content.active {{ display: block; }}
-  .card {{
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1.75rem;
-    margin-bottom: 1.5rem;
-  }}
+  .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.75rem; margin-bottom: 1.5rem; }}
   .card-header {{ margin-bottom: 1.5rem; }}
-  .card-title {{
-    font-family: var(--font-display);
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 4px;
-    letter-spacing: -0.01em;
-  }}
+  .card-title {{ font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; letter-spacing: -0.01em; }}
   .card-subtitle {{ font-size: 12px; color: var(--muted); }}
   .chart-container {{ position: relative; width: 100%; height: 320px; }}
   .two-col {{ display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }}
-  .insight-box {{
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--accent);
-    border-radius: 0 8px 8px 0;
-    padding: 1rem 1.25rem;
-    margin-top: 1.25rem;
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.8;
-  }}
+  .insight-box {{ background: var(--surface2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin-top: 1.25rem; font-size: 12px; color: var(--muted); line-height: 1.8; }}
   .insight-box strong {{ color: var(--text); font-weight: 500; }}
   .date-controls {{ display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }}
-  .date-label {{
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 6px;
-    font-family: var(--font-body);
-  }}
-  input[type="date"] {{
-    width: 100%;
-    background: var(--surface2);
-    border: 1px solid var(--border2);
-    border-radius: 6px;
-    padding: 9px 12px;
-    color: var(--text);
-    font-size: 13px;
-    font-family: var(--font-mono);
-    outline: none;
-    transition: border-color 0.15s;
-    color-scheme: dark;
-  }}
+  .date-label {{ font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; font-family: var(--font-body); }}
+  input[type="date"] {{ width: 100%; background: var(--surface2); border: 1px solid var(--border2); border-radius: 6px; padding: 9px 12px; color: var(--text); font-size: 13px; font-family: var(--font-mono); outline: none; transition: border-color 0.15s; color-scheme: dark; }}
   input[type="date"]:focus {{ border-color: var(--accent); }}
-  .compare-btn {{
-    display: inline-flex;
-    align-items: center;
-    padding: 9px 20px;
-    background: var(--accent);
-    color: #0c0c0e;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.15s;
-    margin-bottom: 1.5rem;
-    font-family: var(--font-body);
-    letter-spacing: 0.01em;
-  }}
+  .compare-btn {{ display: inline-flex; align-items: center; padding: 9px 20px; background: var(--accent); color: #0c0c0e; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; margin-bottom: 1.5rem; font-family: var(--font-body); letter-spacing: 0.01em; }}
   .compare-btn:hover {{ opacity: 0.85; }}
   table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
-  thead th {{
-    text-align: left;
-    padding: 8px 12px;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    border-bottom: 1px solid var(--border);
-    font-family: var(--font-body);
-  }}
+  thead th {{ text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); font-family: var(--font-body); }}
   tbody tr {{ border-bottom: 1px solid var(--border); transition: background 0.1s; }}
   tbody tr:hover {{ background: var(--surface2); }}
   tbody td {{ padding: 11px 12px; color: var(--text); font-family: var(--font-mono); font-size: 13px; }}
   tbody td.label-col {{ font-family: var(--font-body); color: var(--muted); }}
   tbody td.negative {{ color: var(--red); }}
-  .footer {{
-    border-top: 1px solid var(--border);
-    padding: 1.5rem 2.5rem;
-    font-size: 11px;
-    color: var(--muted);
-    display: flex;
-    justify-content: space-between;
-    margin-top: 2rem;
-    font-family: var(--font-mono);
-  }}
+  .legend {{ display: flex; gap: 1.5rem; margin-top: 0.75rem; font-size: 11px; color: var(--muted); }}
+  .legend-item {{ display: flex; align-items: center; gap: 6px; }}
+  .legend-dot {{ width: 10px; height: 10px; border-radius: 2px; }}
+  .footer {{ border-top: 1px solid var(--border); padding: 1.5rem 2.5rem; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; margin-top: 2rem; font-family: var(--font-mono); }}
 
   @media (max-width: 768px) {{
     .top-bar {{ padding: 0 1rem; height: 48px; }}
@@ -435,7 +313,6 @@ html = f"""<!DOCTYPE html>
     .insight-box {{ font-size: 11px; padding: 0.75rem 1rem; margin-top: 1rem; }}
     .compare-btn {{ width: 100%; justify-content: center; }}
   }}
-
   @media (max-width: 480px) {{
     .metrics-grid {{ grid-template-columns: 1fr 1fr; }}
     .three-col {{ grid-template-columns: 1fr 1fr; }}
@@ -538,15 +415,20 @@ html = f"""<!DOCTYPE html>
     <div class="card">
       <div class="card-header">
         <div class="card-title">10Y-2Y Spread, 2000 to Present</div>
-        <div class="card-subtitle">Negative values indicate an inverted yield curve</div>
+        <div class="card-subtitle">Negative values indicate an inverted yield curve. Grey bands show U.S. recession periods.</div>
       </div>
       <div class="chart-container" style="height: 400px;">
-        <canvas id="spreadChart" role="img" aria-label="Historical 10Y-2Y Treasury spread">Spread history</canvas>
+        <canvas id="spreadChart" role="img" aria-label="Historical 10Y-2Y Treasury spread with recession bands">Spread history</canvas>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:rgba(201,150,58,0.8)"></div><span>Normal (positive spread)</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:rgba(224,91,91,0.8)"></div><span>Inverted (negative spread)</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background:rgba(160,160,160,0.4)"></div><span>Recession period (NBER)</span></div>
       </div>
       <div class="insight-box">
-        <strong>Inversion periods</strong> are shown in red. The 2006-2007 inversion came before the 2008 financial crisis.
+        <strong>Inversion periods</strong> are shown in red. Grey bands mark official U.S. recessions as defined by NBER.
+        The 2006-2007 inversion came before the 2008 financial crisis.
         The 2022-2024 inversion was the deepest since the 1980s, driven by aggressive Fed rate hikes.
-        The curve has since normalized as the Fed began cutting rates.
       </div>
     </div>
   </div>
@@ -626,6 +508,8 @@ html = f"""<!DOCTYPE html>
 <script>
 const DATES = {json.dumps(dates)};
 const SPREADS = {json.dumps(spread_data)};
+const RECESSION_DATES = {json.dumps(recession_dates)};
+const RECESSION_FLAGS = {json.dumps(recession_flags)};
 const MATURITIES = {json.dumps(maturities)};
 const CURRENT_YIELDS = {json.dumps(current_yields)};
 const ALL_YIELDS = {json.dumps(all_yields)};
@@ -685,8 +569,36 @@ new Chart(document.getElementById('curveChart'), {{
   }}
 }});
 
+// spread chart with recession bands
 const filteredDates = DATES.filter((_, i) => i % 5 === 0);
 const filteredSpreads = SPREADS.filter((_, i) => i % 5 === 0);
+
+// build recession bands using bar index positions
+const recessionBands = {{}};
+let inRec = false;
+let recStart = -1;
+let bandIdx = 0;
+
+for (let i = 0; i < RECESSION_DATES.length; i++) {{
+  if (RECESSION_FLAGS[i] && !inRec) {{
+    inRec = true;
+    recStart = filteredDates.findIndex(d => d >= RECESSION_DATES[i]);
+  }} else if (!RECESSION_FLAGS[i] && inRec) {{
+    inRec = false;
+    const recEnd = filteredDates.findIndex(d => d >= RECESSION_DATES[i]);
+    if (recStart >= 0 && recEnd > recStart) {{
+      recessionBands['rec' + bandIdx] = {{
+        type: 'box',
+        xMin: recStart - 0.5,
+        xMax: recEnd - 0.5,
+        backgroundColor: 'rgba(160,160,160,0.18)',
+        borderWidth: 0,
+        drawTime: 'beforeDatasetsDraw'
+      }};
+      bandIdx++;
+    }}
+  }}
+}}
 
 new Chart(document.getElementById('spreadChart'), {{
   type: 'bar',
@@ -694,9 +606,11 @@ new Chart(document.getElementById('spreadChart'), {{
     labels: filteredDates,
     datasets: [{{
       data: filteredSpreads,
-      backgroundColor: filteredSpreads.map(v => v < 0 ? 'rgba(224,91,91,0.7)' : 'rgba(201,150,58,0.6)'),
+      backgroundColor: filteredSpreads.map(v => v < 0 ? 'rgba(224,91,91,0.75)' : 'rgba(201,150,58,0.7)'),
       borderWidth: 0,
-      borderRadius: 1
+      borderRadius: 1,
+      barPercentage: 0.9,
+      categoryPercentage: 0.9
     }}]
   }},
   options: {{
@@ -704,7 +618,8 @@ new Chart(document.getElementById('spreadChart'), {{
     maintainAspectRatio: false,
     plugins: {{
       legend: {{ display: false }},
-      tooltip: {{ ...tooltipDefaults, callbacks: {{ label: ctx => ctx.parsed.y.toFixed(3) + '%' }} }}
+      tooltip: {{ ...tooltipDefaults, callbacks: {{ label: ctx => ctx.parsed.y.toFixed(3) + '%' }} }},
+      annotation: {{ annotations: recessionBands }}
     }},
     scales: {{
       x: {{
@@ -781,10 +696,7 @@ function updateComparison() {{
       responsive: true,
       maintainAspectRatio: false,
       plugins: {{
-        legend: {{
-          display: true,
-          labels: {{ color: '#f0f0f4', font: {{ size: 12, family: MONO }}, boxWidth: 12, boxHeight: 2, padding: 20 }}
-        }},
+        legend: {{ display: true, labels: {{ color: '#f0f0f4', font: {{ size: 12, family: MONO }}, boxWidth: 12, boxHeight: 2, padding: 20 }} }},
         tooltip: {{ ...tooltipDefaults, callbacks: {{ label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + '%' }} }}
       }},
       scales: scaleDefaults
